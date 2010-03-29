@@ -3,17 +3,19 @@
 #import "Simulator.h"
 #import "termios.h"
 
-struct termios savedTermios;
+static BOOL gReset = false;
 
 void printUsage();
-int hasInput();
-void ttyRaw();
-void ttyReset();
+void simulate(NSString *sdk, NSString *appPath, NSMutableArray *additionalArgs);
+void resetSignal(int sig);
 
 int main(int argc, char *argv[]) {
+    signal(SIGQUIT, resetSignal);
+    
     int c;
     char *sdk = nil;
     char *appPath = nil;
+    char *buildPath = nil;
 	NSMutableArray *additionalArgs = [NSMutableArray array];
     
     while ((c = getopt(argc, argv, "s:ah")) != -1) {
@@ -48,10 +50,14 @@ int main(int argc, char *argv[]) {
     }
     
     if (argc > optind) {
-        appPath = argv[optind];	
+        appPath = argv[optind++];
+
+        if (argc > optind) {
+            buildPath = argv[optind++];
+        }
 		
 		// Additional args are sent to app
-		for (int i = optind + 1; i < argc; i++) {
+		for (int i = optind; i < argc; i++) {
 			[additionalArgs addObject:[NSString stringWithUTF8String:argv[i]]];
 		}
     }
@@ -61,26 +67,42 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    ttyRaw();
-    atexit(ttyReset);
     
     NSString *sdkString = sdk ? [NSString stringWithUTF8String:sdk] : nil;
     NSString *appPathString = [NSString stringWithUTF8String:appPath];
-    Simulator *simulator = [[Simulator alloc] initWithAppPath:appPathString sdk:sdkString args:additionalArgs];
-    [simulator launch];
+    NSString *buildPathString = buildPath ? [NSString stringWithUTF8String:buildPath] : nil;
 
-    while ([[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:-1]]) {        
-        int r;
-        unsigned char c;
-        
-        if (hasInput()) {
-            if ((r = read(0, &c, sizeof(c))) < 0) continue; // error
+    while (true) {
+        gReset = false;
+
+        // Move scripts over!
+        if (buildPathString) {
+            NSFileManager *fm = [NSFileManager defaultManager];
+            NSString *appDataPath = [appPathString stringByAppendingPathComponent:@"data"];
+            NSString *buildDataPath = [buildPathString stringByAppendingPathComponent:@"data"];
+            NSError *error = nil;
+            [fm removeItemAtPath:appDataPath error:&error];
+            [fm copyItemAtPath:buildDataPath toPath:appDataPath error:&error];            
+            [fm copyItemAtPath:[buildPathString stringByAppendingPathComponent:@"wax/lib/wax-scripts"]
+                        toPath:[appDataPath stringByAppendingPathComponent:@"scripts/wax"]
+                         error:&error];
             
-            printf("REBOOT %c\n", c);
         }
+        
+        simulate(sdkString, appPathString, additionalArgs);
+        printf("\n\nREBOOT\n", appPath);
     }
-    
+            
     return 0;
+}
+
+void simulate(NSString *sdk, NSString *appPath, NSMutableArray *additionalArgs) {
+    Simulator *simulator = [[Simulator alloc] initWithAppPath:appPath sdk:sdk args:additionalArgs];
+    [simulator launch];
+    
+    while (!gReset && [[NSRunLoop mainRunLoop] runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:-1]]) ;
+    
+    [simulator end];
 }
 
 void printUsage() {
@@ -92,26 +114,7 @@ void printUsage() {
     fprintf(stderr, "\t-h \tPrints out this wonderful documentation!\n");    
 }
 
-int hasInput() {
-    struct timeval tv = { 0L, 0L };
-    fd_set fds;
-    FD_SET(STDIN_FILENO, &fds);
-    return select(1, &fds, NULL, NULL, &tv);
-}
-
-void ttyRaw() {
-    struct termios buf;
-    tcgetattr(STDIN_FILENO, &buf);
-    
-    savedTermios = buf;
-    
-    buf.c_lflag &= ~ICANON;
-    buf.c_cc[VMIN] = 0;
-    buf.c_cc[VTIME] = 0;
-    
-    tcsetattr(STDIN_FILENO, TCSANOW, &buf);    
-}
-
-void ttyReset() {
-    tcsetattr(STDIN_FILENO, TCSANOW, &savedTermios);
+void resetSignal(int sig) {
+    gReset = true;
+    signal(sig, resetSignal);
 }
