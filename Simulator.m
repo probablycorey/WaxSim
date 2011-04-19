@@ -63,7 +63,7 @@
 }
 
 - (int)launch {
-    WaxLog(@"Launching '%@' on'%@'", _appPath, [_sdk sdkDisplayName]);
+    WaxLog(@"Launching '%@' on '%@'", _appPath, [_sdk sdkDisplayName]);
     
     DTiPhoneSimulatorApplicationSpecifier *appSpec = [DTiPhoneSimulatorApplicationSpecifier specifierWithApplicationPath:_appPath];
     if (!appSpec) {
@@ -71,11 +71,9 @@
         return EXIT_FAILURE;
     }
     
-    DTiPhoneSimulatorSystemRoot *sdkRoot = [DTiPhoneSimulatorSystemRoot defaultRoot];
-    
     DTiPhoneSimulatorSessionConfig *config = [[DTiPhoneSimulatorSessionConfig alloc] init];
     [config setApplicationToSimulateOnStart:appSpec];
-    [config setSimulatedSystemRoot:sdkRoot];
+    [config setSimulatedSystemRoot:_sdk];
     [config setSimulatedApplicationShouldWaitForDebugger:NO];    
     [config setSimulatedApplicationLaunchArgs:_args];
     [config setSimulatedApplicationLaunchEnvironment:[[NSProcessInfo processInfo] environment]];
